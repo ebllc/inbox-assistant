@@ -22,7 +22,7 @@ const LABEL_IMPORTANT = LABEL_ROOT + '/⭐ Needs me';
 const PROP_SHEET_ID = 'SHEET_ID';
 
 // ---------- release info ----------
-const CODE_VERSION = '2026.11.11-3';
+const CODE_VERSION = '2026.11.11-4';
 const REPO = 'ebllc/inbox-assistant'; // public GitHub repo every copy updates from
 const RAW_URL = branch => 'https://raw.githubusercontent.com/' + REPO + '/' + branch + '/Code.gs';
 
@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = [
   ['MAX_PER_RUN', '30', 'Max emails to process each run'],
   ['LOOKBACK_DAYS', '2', 'Only look at inbox mail newer than this many days'],
   ['LAST_DIGEST', '', '(auto) when the last digest was sent'],
+  ['LAST_CHECK', '', '(auto) what happened at the last inbox check'],
   ['ARCHIVE_READ_AFTER_DAYS', '3', 'Archive emails you\'ve read once they\'re this many days old (stars and "Needs me" are kept). Blank or 0 = off.'],
   ['UPDATE_CODE', 'FALSE', 'Set TRUE to install the latest version now. Flips back to FALSE when done.'],
   ['UPDATE_CHANNEL', 'main', 'main = stable releases (recommended). beta = newest changes first.'],
@@ -56,7 +57,10 @@ const DEFAULT_RULES = [
 ];
 
 /** Check the inbox right now. (First on purpose: it's the default in the Run menu.) */
-function runNow() { processInbox(); }
+function runNow() {
+  const msg = processInbox();
+  try { if (boundSheet_()) SpreadsheetApp.getActiveSpreadsheet().toast(msg || 'Done.', '📬 Inbox Assistant', 8); } catch (e) {}
+}
 
 // ---------- setup ----------
 function setup() {
@@ -65,6 +69,7 @@ function setup() {
   ensureLabels_();
   installTriggers_();
   try { syncSettingsRows_(); ensureHowTo_(); ensureRuleLibrary_(); styleTabs_(); } catch (e) { Logger.log('How-to/styling: ' + e); }
+  try { updateCode(); } catch (e) { /* API switch off — fine, they can update later */ }
   const url = ss.getUrl();
   if (boundSheet_()) {
     try { ss.setActiveSheet(ss.getSheetByName('Settings')); } catch (e) {}
@@ -346,10 +351,35 @@ function syncRuleLibrary_() {
   // Add ticked ones that aren't there yet
   const now = new Set(texts.filter(t => !drop.has(t)));
   want.filter(r => r[0] === true && !now.has(String(r[1]).trim())).forEach(r => {
-    rules.appendRow([String(r[1]).trim(), true]);
-    rules.getRange(rules.getLastRow(), 2).insertCheckboxes().check();
+    const row = nextEmptyRuleRow_(rules);
+    rules.getRange(row, 1, 1, 2).setValues([[String(r[1]).trim(), true]]);
+    rules.getRange(row, 2).insertCheckboxes().check();
   });
+  compactRules_();
   markLibraryTicks_();
+}
+
+/** First row in the Rules tab with no rule text (the On? checkboxes run far down, so getLastRow can't be used). */
+function nextEmptyRuleRow_(rules) {
+  const last = Math.max(rules.getLastRow(), 2);
+  const texts = rules.getRange(2, 1, last - 1, 1).getValues();
+  const i = texts.findIndex(r => String(r[0]).trim() === '');
+  return i >= 0 ? i + 2 : last + 1;
+}
+
+/** Close any gaps so every rule sits together at the top of the Rules tab. */
+function compactRules_() {
+  const rules = getSheet_(false).getSheetByName('Rules');
+  if (!rules || rules.getLastRow() < 2) return;
+  const n = rules.getLastRow() - 1;
+  const vals = rules.getRange(2, 1, n, 2).getValues();
+  const kept = vals.filter(r => String(r[0]).trim() !== '');
+  const firstGap = vals.findIndex(r => String(r[0]).trim() === '');
+  if (firstGap < 0 || !vals.slice(firstGap).some(r => String(r[0]).trim() !== '')) return; // already tidy
+  const out = kept.map(r => [r[0], r[1] === true || String(r[1]).toUpperCase() === 'TRUE'])
+    .concat(Array.from({ length: n - kept.length }, () => ['', false]));
+  rules.getRange(2, 1, n, 2).setValues(out);
+  rules.getRange(2, 2, n, 1).insertCheckboxes();
 }
 
 /** Installable on-edit handler (full copies): react instantly to the Rule Library and UPDATE_CODE. */
@@ -363,7 +393,7 @@ function onSheetEdit(e) {
 }
 
 // ---------- tab styling ----------
-const STYLE_VERSION = '2026-11-11c';
+const STYLE_VERSION = '2026-11-11d';
 const C = {
   ink: '#1f2937', white: '#ffffff', band: '#f8fafc', line: '#e5e7eb', muted: '#6b7280',
   edit: '#fff7e6', amber: '#b45309', amberBg: '#fef3c7', green: '#047857', greenBg: '#d1fae5',
@@ -437,7 +467,7 @@ function styleSettings_(sh) {
   // Auto-managed rows: grey, not highlighted as editable
   const keys = sh.getRange(2, 1, n, 1).getValues().map(r => String(r[0]));
   keys.forEach((k, i) => {
-    if (k === 'LAST_DIGEST' || k === 'ACCOUNT') sh.getRange(i + 2, 2).setBackground(null).setFontColor(C.faint).setFontStyle('italic');
+    if (['LAST_DIGEST', 'LAST_CHECK', 'LAST_UPDATE', 'ACCOUNT'].indexOf(k) >= 0) sh.getRange(i + 2, 2).setBackground(null).setFontColor(C.faint).setFontStyle('italic');
   });
   const vals = sh.getRange(2, 2, n, 1);
   sh.setConditionalFormatRules([
@@ -633,18 +663,28 @@ function readRules_() {
 
 // ---------- main loop ----------
 function processInbox() {
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMM d, h:mm a');
+  let msg;
+  try { msg = processInbox_(); }
+  catch (e) { msg = '⚠ ' + e.message; writeSetting_('LAST_CHECK', stamp + ' · ' + msg); throw e; }
+  if (msg) writeSetting_('LAST_CHECK', stamp + ' · ' + msg);
+  return msg;
+}
+
+function processInbox_() {
   syncSettingsRows_();
   try { syncTriggers_(); } catch (e) { Logger.log('Trigger sync: ' + e); }
-  try { syncRuleLibrary_(); markLibraryTicks_(); } catch (e) { Logger.log('Rule Library sync: ' + e); }
+  try { compactRules_(); syncRuleLibrary_(); markLibraryTicks_(); } catch (e) { Logger.log('Rule Library sync: ' + e); }
   if (readSettings_().UPDATE_CODE) {
     writeSetting_('UPDATE_CODE', 'FALSE');
     updateCode(); // new code takes over from the next run
-    return;
+    return 'Installed the latest version — see LAST_UPDATE.';
   }
   const s = readSettings_();
-  if (!s.GEMINI_API_KEY) { Logger.log('No GEMINI_API_KEY in Settings yet.'); return; }
+  if (!s.GEMINI_API_KEY) return '⚠ Waiting for your Gemini key — paste it into GEMINI_API_KEY.';
   const rules = readRules_();
-  if (!rules.length) { Logger.log('No rules turned on.'); return; }
+  if (!rules.length) return '⚠ No rules are on — tick some in Rule Library or add your own in Rules.';
+  const lookback = Number(s.LOOKBACK_DAYS) || 2;
 
   let query = 'in:inbox -label:"' + LABEL_PROCESSED + '" newer_than:' + (Number(s.LOOKBACK_DAYS) || 2) + 'd';
   if (s.DRY_RUN) query += ' -label:"' + LABEL_PREVIEWED + '"';
@@ -658,7 +698,8 @@ function processInbox() {
   // You sent the latest message → nothing to decide yet; wait for their reply.
   const meLower = Session.getActiveUser().getEmail().toLowerCase();
   threads = threads.filter(t => String(t.getMessages().slice(-1)[0].getFrom()).toLowerCase().indexOf(meLower) < 0);
-  if (!threads.length) return;
+  if (!threads.length) return 'No new emails to sort. It looks at inbox mail from the last ' + lookback +
+    ' days that hasn\'t been sorted yet' + (s.DRY_RUN ? ' or previewed in test mode' : '') + '.';
 
   const items = threads.map(t => {
     const msgs = t.getMessages();
@@ -693,6 +734,8 @@ function processInbox() {
   });
   newestFirst_(log, 1);
   newestFirst_(pending, 4);
+  return 'Sorted ' + items.length + ' email' + (items.length === 1 ? '' : 's') +
+    (s.DRY_RUN ? ' in test mode (nothing changed in Gmail) — see the Log tab.' : ' — see the Log tab.');
 }
 
 function applyDecision_(it, d, s, pending, me) {
