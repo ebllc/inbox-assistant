@@ -1342,12 +1342,12 @@ function updateCode(force) {
     PS_().getUserProperties().deleteProperty('UPDATE_AVAILABLE');
     writeSetting_('LAST_UPDATE', stamp() + ' · updated ' + CODE_VERSION + ' → ' + newVersion + ' (' + channel_() + ')' +
       (added.length ? '. ⚠ Needs one approval — see the email.' : '. If anything breaks, run restorePreviousCode.'));
-    if (added.length) {
+    if (added.length) try {
       GmailApp.sendEmail(Session.getActiveUser().getEmail(), 'Inbox Assistant: one quick approval needed',
         'Inbox Assistant updated to ' + newVersion + ' and needs one new permission before it can keep sorting your mail.\n\n' +
         'Open your Inbox Assistant sheet and choose 📬 Inbox Assistant → Check inbox now (or, in Apps Script, run runNow), then click Allow.\n\n' +
         'Your sheet: ' + getSheet_(false).getUrl(), { name: 'Inbox Assistant' });
-    }
+    } catch (e) { Logger.log('Approval email: ' + e); }
   } catch (e) {
     writeSetting_('LAST_UPDATE', stamp() + ' · ⚠ ' + e.message);
     Logger.log(e);
