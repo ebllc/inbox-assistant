@@ -520,7 +520,7 @@ function stylePending_(sh) {
 }
 
 // ---------- How to tab ----------
-const HOWTO_VERSION = '2026-11-11k';
+const HOWTO_VERSION = '2026-11-11l';
 const SETUP_GUIDE_URL = 'https://claude.ai/artifact/MqpvLwnKzfprXRwC25EjDm';
 
 function ensureHowTo_() {
@@ -562,6 +562,7 @@ function ensureHowTo_() {
     ['', 'updateCode', 'You want the newest version right away.'],
     ['', 'restorePreviousCode', 'Something broke after an update.'],
     ['', 'forgetProcessedLabel', 'You made big rule changes. Run it, then runNow, to re-check recent inbox mail.'],
+    ['', 'publishApp', 'You want your phone app link now. It appears in Settings → APP_URL.'],
     ['', 'refreshHowTo · restyleTabs', 'A tab\'s text, colors, or layout got messed up.'],
     ['', 'reinstallTriggers', 'Rarely needed — schedule changes apply on their own within 10 min.'],
     ['', 'setup', 'Only on first install. Don\'t re-run it.'],
@@ -1220,6 +1221,13 @@ function ensureWebApp_(force) {
   return url ? url.url : '';
 }
 
+/** Run menu (accounts without the sheet menu): publish the app now; the link lands in Settings → APP_URL. */
+function publishApp() {
+  const url = ensureWebApp_(true);
+  Logger.log('Your app: ' + url);
+  return url;
+}
+
 /** Menu: 📬 Inbox Assistant → Open the app */
 function openAppFromMenu() {
   let url = '', err = '';
@@ -1638,7 +1646,7 @@ function viaLibrary_() { return !!(HOST_ && HOST_.ScriptApp); }
 function run(name, host) {
   HOST_ = host || null;
   if (!name) name = 'runNow'; // picked from the Run menu by hand → just check the inbox
-  const fns = { setup, runNow, processInbox, processPending, sendDigest, sendDigestNow, reinstallTriggers, updateCode, restorePreviousCode, repairTabs,
+  const fns = { setup, runNow, processInbox, processPending, sendDigest, sendDigestNow, reinstallTriggers, updateCode, restorePreviousCode, repairTabs, publishApp,
     forgetProcessedLabel, refreshHowTo, restyleTabs };
   if (!fns[name]) throw new Error('Unknown function: ' + name);
   return fns[name]();
