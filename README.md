@@ -5,6 +5,7 @@ A free, personal Gmail helper that runs entirely inside your own Google account 
 - Plain-English rules in a Google Sheet, plus a **Rule Library** of ready-made rules by account type
 - Auto-labels, archives (now or after N days), flags what needs you, alerts you immediately
 - Morning (and optional midday) digest email listing everything it did, with links
+- A private **phone app**: Today, Rules, Settings, and all your linked Gmail accounts in one place
 - Starts in test mode (`DRY_RUN`) so you can check its choices before it touches anything
 - Star any email to keep the assistant's hands off it
 
@@ -12,27 +13,28 @@ A free, personal Gmail helper that runs entirely inside your own Google account 
 
 Use the setup guide: https://claude.ai/artifact/MqpvLwnKzfprXRwC25EjDm
 
-The quick version: make a copy of the template sheet, choose **📬 Inbox Assistant → Set up** from the sheet's menu, click Allow, and paste a free Gemini key from https://aistudio.google.com/apikey into the Settings tab.
+Short version: make a copy of the template sheet → **📬 Inbox Assistant → Set up** → Allow → paste a free Gemini key from https://aistudio.google.com/apikey into the Settings tab. Then publish the phone app once (Deploy → New deployment → Web app → Only myself).
 
-## Updates
+## How updates work
 
-Each copy can update itself from this repo.
+Each project holds only `Loader.gs`. The loader downloads `Core.gs` from this repo, keeps a copy in the project's script properties, and runs it.
 
-- **Once per Google account:** turn on the Apps Script API at https://script.google.com/home/usersettings
-- **Get the latest now:** menu → *Install latest version*, or set `UPDATE_CODE` to `TRUE` in Settings
-- **Automatic:** set `AUTO_UPDATE` to `TRUE`; it checks once a day
+- **Install the latest:** app → Settings → Check for update, the sheet menu, or `UPDATE_CODE` = `TRUE`
+- **Automatic:** `AUTO_UPDATE` = `TRUE` (checks once a day)
 - **Channel:** `UPDATE_CHANNEL` = `main` (stable, default) or `beta` (newest first)
-- **Undo:** menu → *Undo last update* (keeps the previous version as a backup)
+- **Undo:** keeps the previous version; if a stored version won't start, the loader falls back by itself
 
-Each copy keeps its own `appsscript.json` (time zone, permissions). Updates replace only the code.
+No Apps Script API, Cloud project, or extra permissions are needed for updates.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `Code.gs` | The whole assistant. This is what copies download when they update. |
-| `appsscript.json` | Project settings (permissions). Needed for self-update. |
-| `Stub.gs` | For running extra accounts off one main project as an Apps Script library. Optional. |
+| `Loader.gs` | The only code in each Apps Script project. Rarely changes. |
+| `Core.gs` | The assistant itself, downloaded by the loader. Generated: `App.html` is embedded by `build.py`. |
+| `App.html` | The phone app's page (edit this, then run `python3 build.py`). |
+| `appsscript.json` | Project settings (permissions) for hand installs. |
+| `Stub.gs` | Older library-based setup. Not needed with the loader. |
 
 ## Privacy
 
