@@ -136,7 +136,7 @@ function call(name) {
   var args = Array.prototype.slice.call(arguments, 1);
   return new Promise(function (res, rej) {
     var r = google.script.run.withSuccessHandler(res).withFailureHandler(function (e) { rej(e && e.message ? e : new Error(String(e))); });
-    r[name].apply(r, args);
+    r.appCall(name, args);
   });
 }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -180,10 +180,11 @@ function render() {
   else if (S.sub === 'link') html = viewLink();
   else if (S.sub === 'join') html = viewJoin();
   else if (S.sub === 'manage') html = viewManage();
+  else if (S.sub === 'key') html = viewKey();
   else if (S.tab === 'rules') html = viewRules();
   else if (S.tab === 'settings') html = viewSettings();
   else html = viewToday();
-  if (!S.sub || S.sub === 'cleared' || S.sub === 'link' || S.sub === 'join' || S.sub === 'manage') html += nav();
+  if (!S.sub || S.sub === 'cleared' || S.sub === 'link' || S.sub === 'join' || S.sub === 'manage' || S.sub === 'key') html += nav();
   document.getElementById('app').innerHTML = html;
   window.scrollTo(0, 0);
 }
@@ -351,6 +352,7 @@ function viewSettings() {
   } else {
     h += '<div class="item"><div class="lbl"><b>Digest</b><span>Included in ' + esc(s.mainAccount || 'your main account') + '\'s digest.</span></div></div>';
   }
+  h += '<div class="item"><div class="lbl"><b>Gemini key</b><span>' + (s.keySaved ? 'Saved privately ✓' : 'Not set yet — the assistant can\'t sort mail without it.') + '</span></div><button class="linkbtn" onclick="S.sub=\'key\';render()">' + (s.keySaved ? 'Replace' : 'Add') + '</button></div>';
   h += '<div class="block"><b style="font-weight:600">When I tap an email</b><div class="seg" role="radiogroup" aria-label="When I tap an email">' +
     '<button role="radio" aria-checked="' + (s.tapAction !== 'gmail') + '" onclick="setTap(\'app\')">Show it here</button><button role="radio" aria-checked="' + (s.tapAction === 'gmail') + '" onclick="setTap(\'gmail\')">Open in Gmail</button></div></div>';
   h += '<div class="item"><div class="lbl"><b>Archive read mail after</b><span>Starred and “needs you” stay. 0 = never.</span></div><div class="stepper"><button aria-label="Fewer days" onclick="stepDays(-1)">−</button><span>' + (s.archiveDays ? s.archiveDays + (s.archiveDays === 1 ? ' day' : ' days') : 'Never') + '</span><button aria-label="More days" onclick="stepDays(1)">+</button></div></div></div>';
@@ -383,6 +385,20 @@ function stepDays(n) { var v = Math.max(0, Math.min(60, (S.d.settings.archiveDay
 function toggleAuto() { var v = !S.d.settings.autoUpdate; S.d.settings.autoUpdate = v; render(); setSetting('AUTO_UPDATE', v ? 'TRUE' : 'FALSE'); }
 function updNow(b) { b.disabled = true; b.textContent = 'Checking…'; call('appUpdateNow').then(function (m) { toast(m); return load(); }).catch(fail); }
 function undoUpd(b) { b.disabled = true; call('appUndoUpdate').then(function (m) { toast(m); return load(); }).catch(fail); }
+
+/* ---------- Gemini key ---------- */
+function viewKey() {
+  return topBar('Gemini key', "S.sub=null;S.tab='settings';render()") + '<main class="page">' +
+    '<p style="margin:0;font-size:14px;color:var(--muted)">Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. It\'s stored privately in ' + esc(S.d.editing.label) + '\'s Google account and never shown again, not in the app and not in the sheet.</p>' +
+    '<div><label class="f" for="gk">New key</label><input class="input" id="gk" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key"></div>' +
+    '<button class="btn primary" style="flex:none" id="gkb" onclick="saveKey()">Save key</button>' +
+    '<div class="note" style="text-align:left">Tip: turn on billing for the key in AI Studio (about $0–2 a month) so Google doesn\'t use your email text to improve its products.</div></main>';
+}
+function saveKey() {
+  var el = document.getElementById('gk'), b = document.getElementById('gkb');
+  b.disabled = true;
+  call('appSetKey', S.d.editing.key, el.value).then(function (m) { el.value = ''; toast(m); S.sub = null; S.tab = 'settings'; return load(); }).catch(function (e) { b.disabled = false; fail(e); });
+}
 
 /* ---------- Manage / link / join ---------- */
 function manage(i) { S.edit = S.d.accounts[i]; S.sub = 'manage'; render(); }

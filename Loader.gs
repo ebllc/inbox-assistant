@@ -6,7 +6,7 @@
  * Updates: the app's Settings → Check for update (or AUTO_UPDATE = TRUE in the sheet). Undo keeps the previous version.
  */
 const IA_REPO = 'ebllc/inbox-assistant';
-const IA_LOADER_VERSION = '1';
+const IA_LOADER_VERSION = '2';
 const IA_CHUNK = 2000; // characters per stored piece (Apps Script caps each stored value at 9 KB)
 
 // ---------- the 📬 menu (built without loading anything, so it always appears) ----------
@@ -47,7 +47,12 @@ function openAppFromMenu() { return ia_('openAppFromMenu', arguments); }
 function publishApp() { return ia_('publishApp', arguments); }
 function onSheetEdit() { return ia_('onSheetEdit', arguments); }
 function doGet() { return ia_('doGet', arguments); }
-// the app (google.script.run)
+// the app (google.script.run): one doorway, so new app features never need a new loader
+function appCall(name, args) {
+  if (!/^app[A-Z]\w*$/.test(String(name))) throw new Error('Not an app function: ' + name);
+  return ia_(name, args || []);
+}
+// (older app pages call these directly)
 function appState() { return ia_('appState', arguments); }
 function appSetSetting() { return ia_('appSetSetting', arguments); }
 function appRuleSet() { return ia_('appRuleSet', arguments); }
@@ -62,6 +67,7 @@ function appUndoUpdate() { return ia_('appUndoUpdate', arguments); }
 function appLinkCode() { return ia_('appLinkCode', arguments); }
 function appJoinMain() { return ia_('appJoinMain', arguments); }
 function appUnlink() { return ia_('appUnlink', arguments); }
+function appSetKey() { return ia_('appSetKey', arguments); }
 
 // ---------- loading, storing, updating ----------
 let IA_CORE_ = null;
