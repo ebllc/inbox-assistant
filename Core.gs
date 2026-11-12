@@ -25,7 +25,7 @@ const LABEL_IMPORTANT = LABEL_ROOT + '/⭐ Needs me';
 const PROP_SHEET_ID = 'SHEET_ID';
 
 // ---------- release info ----------
-const CODE_VERSION = '2026.11.11-6';
+const CODE_VERSION = '2026.11.12-1';
 const REPO = 'ebllc/inbox-assistant'; // public GitHub repo the loader downloads this file from
 
 const DEFAULT_SETTINGS = [
@@ -730,7 +730,9 @@ function processInbox_() {
     };
   });
 
-  const decisions = askGemini_(s, rules, items);
+  let decisions;
+  try { decisions = askGemini_(s, rules, items); }
+  catch (e) { if (e.gemini) return '⏳ ' + e.message; throw e; }
   const processed = getOrCreateLabel_(LABEL_PROCESSED);
   const previewed = getOrCreateLabel_(LABEL_PREVIEWED);
   const log = getSheet_(false).getSheetByName('Log');
@@ -1483,6 +1485,24 @@ function askGemini_(s, rules, items) {
   return out;
 }
 
+/** Turns Google's error into a plain sentence (and keeps Google's own words for troubleshooting). */
+function geminiError_(code, text, model) {
+  let msg = '';
+  try { msg = (JSON.parse(text).error || {}).message || ''; } catch (e) { msg = String(text).slice(0, 200); }
+  msg = msg.replace(/\s+/g, ' ').slice(0, 220);
+  let plain;
+  if (code === 429 && /limit:\s*0\b/.test(text)) plain = 'This Gemini key has no free allowance for ' + model + '. Try another MODEL in Settings, or turn on billing for the key.';
+  else if (code === 429 && /per ?day|PerDay/i.test(text)) plain = 'This Gemini key used up today\'s free allowance. It will pick up again tomorrow.';
+  else if (code === 429) plain = 'Gemini\'s free limit is busy right now. It will try again at the next check.';
+  else if (code === 400 && /API key/i.test(text)) plain = 'Gemini didn\'t accept the key in GEMINI_API_KEY. Copy it again from aistudio.google.com/apikey.';
+  else if (code === 404) plain = 'Gemini doesn\'t know the model "' + model + '". Change MODEL in Settings.';
+  else if (code >= 500) plain = 'Gemini is having trouble right now. It will try again at the next check.';
+  else plain = 'Gemini error ' + code + '.';
+  const e = new Error(plain + (msg ? ' (Google: ' + msg + ')' : ''));
+  e.gemini = code;
+  return e;
+}
+
 function geminiText_(s, prompt, schema) {
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + (s.MODEL || 'gemini-3.8-flash') +
     ':generateContent?key=' + encodeURIComponent(s.GEMINI_API_KEY);
@@ -1494,16 +1514,22 @@ function geminiText_(s, prompt, schema) {
     payload.generationConfig.responseMimeType = 'application/json';
     payload.generationConfig.responseSchema = schema;
   }
-  let res, code;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  let res, code, waited = 0;
+  for (let attempt = 0; attempt < 4; attempt++) {
     res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json',
       payload: JSON.stringify(payload), muteHttpExceptions: true });
     code = res.getResponseCode();
     if (code === 200) break;
-    if (code === 429 || code >= 500) { Utilities.sleep(4000 * (attempt + 1)); continue; }
-    throw new Error('Gemini ' + code + ': ' + res.getContentText().slice(0, 300));
+    if (code === 429 || code >= 500) {
+      // Google says how long to wait ("retryDelay": "37s"). Wait that long, up to about a minute in total.
+      const m = res.getContentText().match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+      const wait = Math.min(m ? Math.ceil(Number(m[1]) * 1000) + 500 : 5000 * (attempt + 1), 60000 - waited);
+      if (wait <= 0 || /limit:\s*0\b/.test(res.getContentText())) break;
+      Utilities.sleep(wait); waited += wait; continue;
+    }
+    break;
   }
-  if (code !== 200) throw new Error('Gemini ' + code + ' after retries');
+  if (code !== 200) throw geminiError_(code, res ? res.getContentText() : '', s.MODEL || 'gemini-3.8-flash');
   const data = JSON.parse(res.getContentText());
   const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
   return parts.map(p => p.text || '').join('');
